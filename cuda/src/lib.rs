@@ -1,8 +1,16 @@
-#![cfg(any(nvidia, iluvatar))]
+// #![cfg(nvidia)]
 #![deny(warnings)]
+#![deny(dead_code)]
+// #![allow(unsafe_op_in_unsafe_fn)]
 
 #[macro_use]
-#[allow(unused, non_upper_case_globals, non_camel_case_types, non_snake_case)]
+#[allow(
+    unused,
+    non_upper_case_globals,
+    non_camel_case_types,
+    non_snake_case,
+    unsafe_op_in_unsafe_fn
+)]
 pub mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
@@ -13,10 +21,10 @@ pub mod bindings {
             use $crate::bindings::*;
             #[allow(unused_unsafe, clippy::macro_metavars_in_unsafe)]
             let err = unsafe { $f };
-            assert_eq!(err, CUresult::$expected);
+            assert_eq!(err, hcError_t::$expected);
         }};
 
-        ($f:expr) => {{ driver!(CUDA_SUCCESS, $f) }};
+        ($f:expr) => {{ driver!(hcSuccess, $f) }};
     }
 
     #[macro_export]
@@ -26,7 +34,7 @@ pub mod bindings {
             use $crate::bindings::*;
             #[allow(unused_unsafe, clippy::macro_metavars_in_unsafe)]
             let err = unsafe { $f };
-            assert_eq!(err, nvrtcResult::NVRTC_SUCCESS);
+            assert_eq!(err, hcrtcResult::HCRTC_SUCCESS);
         }};
     }
 }
@@ -45,17 +53,17 @@ mod virtual_mem;
 pub struct NoDevice;
 
 pub fn init() -> Result<(), NoDevice> {
-    use bindings::{CUresult::*, cuInit};
-    match unsafe { cuInit(0) } {
-        CUDA_SUCCESS => Ok(()),
-        CUDA_ERROR_NO_DEVICE => Err(NoDevice),
-        e => panic!("Failed to initialize CUDA: {e:?}"),
+    use bindings::{hcError_t::*, hcInit};
+    match unsafe { hcInit(0) } {
+        hcSuccess => Ok(()),
+        hcErrorInvalidDevice => Err(NoDevice),
+        e => panic!("Failed to initialize HCDA: {e:?}"),
     }
 }
 
 pub fn version() -> Version {
     let mut version = 0;
-    driver!(cuDriverGetVersion(&mut version));
+    driver!(hcDriverGetVersion(&mut version));
     Version {
         major: version / 1000,
         minor: version % 1000 / 10,
@@ -197,5 +205,5 @@ impl From<usize> for MemSize {
 
 #[test]
 fn test_version() {
-    println!("CUDA version: {}", version())
+    println!("HC version: {}", version())
 }

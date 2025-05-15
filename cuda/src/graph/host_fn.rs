@@ -1,5 +1,5 @@
 ﻿use super::{Graph, GraphNode, HostFnNode, collect_dependencies};
-use crate::bindings::{CUDA_HOST_NODE_PARAMS, CUhostFn};
+use crate::bindings::{hcHostFn_t, hcHostNodeParams};
 use context_spore::AsRaw;
 use std::{ffi::c_void, marker::PhantomData, ptr::null_mut};
 
@@ -21,23 +21,23 @@ impl Graph {
 
     pub fn add_host_node<'a>(
         &self,
-        host_fn: CUhostFn,
+        host_fn: hcHostFn_t,
         user_data: *mut c_void,
         deps: impl IntoIterator<Item = &'a GraphNode<'a>>,
     ) -> HostFnNode {
         let deps = collect_dependencies(deps);
 
-        let cuda_host_node_params = CUDA_HOST_NODE_PARAMS {
+        let hc_host_node_params = hcHostNodeParams {
             fn_: host_fn,
             userData: user_data,
         };
         let mut node = null_mut();
-        driver!(cuGraphAddHostNode(
+        driver!(hcGraphAddHostNode(
             &mut node,
             self.as_raw(),
             deps.as_ptr(),
             deps.len(),
-            &cuda_host_node_params,
+            &hc_host_node_params,
         ));
         HostFnNode(node, PhantomData)
     }
@@ -45,7 +45,7 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
-    use crate::{AsRaw, Ptx, bindings::CUDA_HOST_NODE_PARAMS, graph::Graph, params};
+    use crate::{AsRaw, Ptx, bindings::hcHostNodeParams, graph::Graph, params};
     use std::ptr::{null, null_mut};
 
     #[test]
@@ -53,8 +53,8 @@ mod test {
         const CODE: &str = r#"extern "C" __global__ void print(int n) { printf("Hello, world(%d)! from GPU\n", n); }"#;
 
         use context_spore::AsRaw;
-        // 主机函数不得执行任何依赖于未完成 CUDA 工作的同步操作
-        // 主机函数内部不得调用任何 CUDA API，否则可能返回 CUDA_ERROR_NOT_PERMITTED（但非强制要求）。
+        // 主机函数不得执行任何依赖于未完成 HC 工作的同步操作
+        // 主机函数内部不得调用任何 HC API，否则可能返回 HC_ERROR_NOT_PERMITTED（但非强制要求）。
         extern "C" fn host_fn(e: *mut core::ffi::c_void) {
             let num: usize = unsafe { *e.cast::<usize>() };
             println!("Hello World from CPU! num: {}", num);
@@ -71,7 +71,7 @@ mod test {
             let kernel = module.get_kernel(c"print");
 
             let stream = ctx.stream();
-            driver!(cuLaunchHostFunc(
+            driver!(hcLaunchHostFunc(
                 stream.as_raw(),
                 Some(host_fn as unsafe extern "C" fn(*mut core::ffi::c_void)),
                 &one as *const usize as *mut core::ffi::c_void
@@ -79,7 +79,7 @@ mod test {
 
             stream.launch(&kernel, (1, 1, 0), &params![1].to_ptrs());
 
-            driver!(cuLaunchHostFunc(
+            driver!(hcLaunchHostFunc(
                 stream.as_raw(),
                 Some(host_fn as unsafe extern "C" fn(*mut core::ffi::c_void)),
                 &two as *const usize as *mut core::ffi::c_void
@@ -109,7 +109,7 @@ mod test {
 
             let stream = ctx.stream();
             let stream = stream.capture();
-            driver!(cuLaunchHostFunc(
+            driver!(hcLaunchHostFunc(
                 stream.as_raw(),
                 Some(host_fn as unsafe extern "C" fn(*mut core::ffi::c_void)),
                 1 as *mut core::ffi::c_void
@@ -117,7 +117,7 @@ mod test {
 
             stream.launch(&kernel, (1, 1, 0), &params![1].to_ptrs());
 
-            driver!(cuLaunchHostFunc(
+            driver!(hcLaunchHostFunc(
                 stream.as_raw(),
                 Some(host_fn as unsafe extern "C" fn(*mut core::ffi::c_void)),
                 2 as *mut core::ffi::c_void
@@ -152,22 +152,22 @@ mod test {
 
             let one: usize = 1;
 
-            let cuda_host_node_params = CUDA_HOST_NODE_PARAMS {
+            let hc_host_node_params = hcHostNodeParams {
                 fn_: Some(host_fn),
                 userData: one as *mut core::ffi::c_void,
             };
             let mut node = null_mut();
-            driver!(cuGraphAddHostNode(
+            driver!(hcGraphAddHostNode(
                 &mut node,
                 graph.as_raw(),
                 null(),
                 0,
-                &cuda_host_node_params,
+                &hc_host_node_params,
             ));
 
             graph.add_kernel_call(&kernel, (1, 1, 0), &params![1].to_ptrs(), &[]);
 
-            // graph.save_dot(std::env::current_dir().unwrap().join("host_graph.dot"));
+            // graph.save_dot(std::env::hcrrent_dir().unwrap().join("host_graph.dot"));
             let stream = ctx.stream();
             let exec = ctx.instantiate(&graph);
 
@@ -195,7 +195,7 @@ mod test {
                 },
                 &[],
             );
-            // graph.save_dot(std::env::current_dir().unwrap().join("host_graph.dot"));
+            // graph.save_dot(std::env::hcrrent_dir().unwrap().join("host_graph.dot"));
             let stream = ctx.stream();
             let exec = ctx.instantiate(&graph);
 

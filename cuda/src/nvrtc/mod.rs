@@ -70,7 +70,7 @@ fn test_behavior() {
     let code = CString::new(src).unwrap();
     let ptx = {
         let mut program = null_mut();
-        nvrtc!(nvrtcCreateProgram(
+        nvrtc!(hcrtcCreateProgram(
             &mut program,
             code.as_ptr().cast(),
             null(),
@@ -78,15 +78,15 @@ fn test_behavior() {
             null(),
             null(),
         ));
-        nvrtc!(nvrtcCompileProgram(program, 0, null()));
+        nvrtc!(hcrtcCompileProgram(program, 0, null()));
 
         let mut ptx_len = 0;
-        nvrtc!(nvrtcGetPTXSize(program, &mut ptx_len));
+        nvrtc!(hcrtcGetBitcodeSize(program, &mut ptx_len));
         println!("ptx_len = {ptx_len}");
 
         let mut ptx = vec![0u8; ptx_len];
-        nvrtc!(nvrtcGetPTX(program, ptx.as_mut_ptr().cast()));
-        nvrtc!(nvrtcDestroyProgram(&mut program));
+        nvrtc!(hcrtcGetBitcode(program, ptx.as_mut_ptr().cast()));
+        nvrtc!(hcrtcDestroyProgram(&mut program));
         ptx
     };
     let ptx = ptx.as_slice();
@@ -99,9 +99,37 @@ fn test_behavior() {
         return;
     }
     crate::Device::new(0).context().apply(|_| {
-        driver!(cuModuleLoadData(&mut m, ptx.as_ptr().cast()));
-        driver!(cuModuleGetFunction(&mut f, m, name.as_ptr()));
-        #[rustfmt::skip]
-        driver!(cuLaunchKernel(f, 1, 1, 1, 1, 1, 1, 0, null_mut(), null_mut(), null_mut()));
+        driver!(hcModuleLoadData(&mut m, ptx.as_ptr().cast()));
+        driver!(hcModuleGetFunction(&mut f, m, name.as_ptr()));
+        let mut value = 0;
+        driver!(hcFuncGetAttribute(
+            &mut value,
+            hcFunction_attribute::HC_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK,
+            f
+        ));
+        println!("version = {value}");
+        driver!(hcModuleLaunchKernel(
+            f,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            null_mut(),
+            null_mut(),
+            null_mut()
+        ));
+        // #[rustfmt::skip]
+        // driver!(hcLaunchKernel(
+        //     f.cast(),
+        //     dim3 { x: 1, y: 1, z: 1 },
+        //     dim3 { x: 1, y: 1, z: 1 },
+        //     null_mut(),
+        //     0,
+        //     null_mut(),
+        //     // null_mut()
+        // ));
     });
 }

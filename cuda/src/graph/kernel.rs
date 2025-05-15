@@ -1,6 +1,10 @@
 ﻿use super::{Graph, GraphNode, KernelNode, collect_dependencies};
-use crate::{Dim3, KernelFn, bindings::CUDA_KERNEL_NODE_PARAMS};
+use crate::{
+    Dim3, KernelFn,
+    bindings::{dim3, hcKernelNodeParams},
+};
 use context_spore::AsRaw;
+
 use std::{ffi::c_void, marker::PhantomData, ptr::null_mut};
 
 impl Graph {
@@ -14,19 +18,25 @@ impl Graph {
         let (grid, block, shared_mem) = attrs;
         let grid = grid.into();
         let block = block.into();
-        let params = CUDA_KERNEL_NODE_PARAMS {
-            func: unsafe { f.as_raw() },
-            gridDimX: grid.x,
-            gridDimY: grid.y,
-            gridDimZ: grid.z,
-            blockDimX: block.x,
-            blockDimY: block.y,
-            blockDimZ: block.z,
+        let num_blocks: dim3 = dim3 {
+            x: grid.x,
+            y: grid.y,
+            z: grid.z,
+        };
+        let dim_blocks: dim3 = dim3 {
+            x: block.x,
+            y: block.y,
+            z: block.z,
+        };
+        let params = hcKernelNodeParams {
+            func: unsafe { f.as_raw().cast() },
+            gridDim: num_blocks,
+            blockDim: dim_blocks,
             sharedMemBytes: shared_mem as _,
             kernelParams: params.as_ptr() as _,
             extra: null_mut(),
-            kern: null_mut(),
-            ctx: null_mut(),
+            // kern: null_mut(),
+            // ctx: null_mut(),
         };
 
         self.add_kernel_node_with_params(&params, deps)
@@ -38,20 +48,20 @@ impl Graph {
         deps: impl IntoIterator<Item = &'a GraphNode<'a>>,
     ) -> KernelNode {
         let mut params = unsafe { std::mem::zeroed() };
-        driver!(cuGraphKernelNodeGetParams_v2(node.as_raw(), &mut params));
+        driver!(hcGraphKernelNodeGetParams(node.as_raw(), &mut params));
 
         self.add_kernel_node_with_params(&params, deps)
     }
 
     pub fn add_kernel_node_with_params<'a>(
         &self,
-        params: &CUDA_KERNEL_NODE_PARAMS,
+        params: &hcKernelNodeParams,
         deps: impl IntoIterator<Item = &'a GraphNode<'a>>,
     ) -> KernelNode {
         let deps = collect_dependencies(deps);
 
         let mut node = null_mut();
-        driver!(cuGraphAddKernelNode_v2(
+        driver!(hcGraphAddKernelNode(
             &mut node,
             self.as_raw(),
             deps.as_ptr(),

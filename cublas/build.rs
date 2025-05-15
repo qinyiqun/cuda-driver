@@ -1,49 +1,42 @@
 fn main() {
     use build_script_cfg::Cfg;
-    use find_cuda_helper::{find_cuda_root, include_cuda};
-    use search_corex_tools::{find_corex, include_corex};
+    // use find_cuda_helper::{find_cuda_root, include_cuda};
+    // use search_corex_tools::{find_corex, include_corex};
+    use search_cuda_tools::find_cuda_root;
     use std::{env, path::PathBuf};
 
     println!("cargo:rerun-if-changed=build.rs");
 
     let nvidia = Cfg::new("nvidia");
-    let iluvatar = Cfg::new("iluvatar");
+    nvidia.define();
 
-    enum Vendor {
-        Nvidia,
-        Iluvatar,
-    }
-
-    let (vendor, toolkit) = if let Some(corex) = find_corex() {
-        include_corex(&corex);
-        iluvatar.define();
-        (Vendor::Iluvatar, corex)
-    } else if let Some(cuda_root) = find_cuda_root() {
-        include_cuda();
-        nvidia.define();
-        (Vendor::Nvidia, cuda_root)
-    } else {
+    let Some(cuda_root) = find_cuda_root() else {
         return;
     };
 
-    println!("cargo:rustc-link-lib=dylib=cublas");
-    println!("cargo:rustc-link-lib=dylib=cublasLt");
+    println!("cargo:rustc-link-lib=dylib=hcblas");
+    println!("cargo:rustc-link-lib=dylib=hcblasLt");
 
+    println!("cargo:rustc-link-lib=dylib=hcruntime");
+    println!("cargo:rustc-link-lib=dylib=htc-runtime64");
     // Tell cargo to invalidate the built crate whenever the wrapper changes.
     println!("cargo:rerun-if-changed=wrapper.h");
-    let include = toolkit.join("include");
+
     // The bindgen::Builder is the main entry point to bindgen,
     // and lets you build up options for the resulting bindings.
     let mut builder = bindgen::Builder::default();
     builder = builder
         // The input header we would like to generate bindings for.
         .header("wrapper.h")
-        .clang_arg(format!("-I{}", include.display()))
+        .clang_arg(format!("-I{}", cuda_root.join("include").display()))
+        // .clang_arg("-x hpcc")
+        .clang_arg("-x")
+        .clang_arg("c++")
         // Only generate bindings for the functions in these namespaces.
-        .allowlist_function("cublas.*")
-        .allowlist_item("cublas.*")
+        .allowlist_function("hcblas.*")
+        .allowlist_item("hcblas.*")
         // Annotate the given type with the #[must_use] attribute.
-        .must_use_type("cublasStatus_t")
+        .must_use_type("hcblasStatus_t")
         // Generate rust style enums.
         .default_enum_style(bindgen::EnumVariation::Rust {
             non_exhaustive: true,
@@ -52,9 +45,6 @@ fn main() {
         .use_core()
         // Tell cargo to invalidate the built crate whenever any of the included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
-    if let Vendor::Iluvatar = vendor {
-        builder = builder.clang_args(["-x", "c++"])
-    }
     let bindings = builder
         // Finish the builder and generate the bindings.
         .generate()

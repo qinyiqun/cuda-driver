@@ -1,6 +1,6 @@
 ﻿fn main() {
     use build_script_cfg::Cfg;
-    use search_cuda_tools::{find_cuda_root, find_nccl_root, include_cuda};
+    use search_cuda_tools::find_cuda_root;
     use std::{env, path::PathBuf};
 
     println!("cargo:rerun-if-changed=build.rs");
@@ -9,21 +9,11 @@
     let Some(cuda_root) = find_cuda_root() else {
         return;
     };
-    let Some(nccl_root) = find_nccl_root() else {
-        return;
-    };
     nccl.define();
-    include_cuda();
 
-    let mut includes = vec![format!("-I{}/include", cuda_root.display())];
-    if let Some(nccl_root) = nccl_root {
-        let nccl_root = nccl_root.display();
-        includes.push(format!("-I{nccl_root}/include"));
-        println!("cargo:rustc-link-search={nccl_root}/lib");
-    }
-
-    println!("cargo:rustc-link-lib=dylib=nccl");
-
+    println!("cargo:rustc-link-lib=dylib=hccl");
+    println!("cargo:rustc-link-lib=dylib=hcruntime");
+    println!("cargo:rustc-link-lib=dylib=htc-runtime64");
     // Tell cargo to invalidate the built crate whenever the wrapper changes.
     println!("cargo:rerun-if-changed=wrapper.h");
 
@@ -32,12 +22,16 @@
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate bindings for.
         .header("wrapper.h")
-        .clang_args(&includes)
+        // .clang_args(&includes)
+        .clang_arg(format!("-I{}", cuda_root.join("include").display()))
+        .clang_arg("-x")
+        .clang_arg("c++")
         // Only generate bindings for the functions in these namespaces.
-        .allowlist_function("nccl.*")
-        .allowlist_item("nccl.*")
+        // .clang_arg("-x hpcc")
+        .allowlist_function("hccl.*")
+        .allowlist_item("hccl.*")
         // Annotate the given type with the #[must_use] attribute.
-        .must_use_type("ncclResult_t")
+        .must_use_type("hcclResult_t")
         // Generate rust style enums.
         .default_enum_style(bindgen::EnumVariation::Rust {
             non_exhaustive: true,

@@ -12,7 +12,7 @@ impl Graph {
         let deps = collect_dependencies(deps);
 
         let mut node = null_mut();
-        driver!(cuGraphAddMemFreeNode(
+        driver!(hcGraphAddMemFreeNode(
             &mut node,
             self.as_raw(),
             deps.as_ptr(),
@@ -24,11 +24,9 @@ impl Graph {
 
     pub fn add_free_node<'a>(
         &self,
-        node: &MemFreeNode,
-        deps: impl IntoIterator<Item = &'a GraphNode<'a>>,
+        _node: &MemFreeNode,
+        _deps: impl IntoIterator<Item = &'a GraphNode<'a>>,
     ) -> MemFreeNode {
-        let mut ptr = 0;
-        driver!(cuGraphMemFreeNodeGetParams(node.as_raw(), &mut ptr));
-        self.free(ptr as _, deps)
+        todo!()
     }
 }

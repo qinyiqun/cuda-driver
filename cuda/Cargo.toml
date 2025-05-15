@@ -11,15 +11,17 @@ doctest = false
 
 [dependencies]
 context-spore = "0.1"
-find_cuda_helper.workspace = true
+# find_cuda_helper.workspace = true
 log = "0.4"
 search-corex-tools.path = "../search-corex-tools"
+search-cuda-tools.path = "../search-cuda-tools"
 
 [build-dependencies]
 bindgen.workspace = true
 build-script-cfg.workspace = true
-find_cuda_helper.workspace = true
+# find_cuda_helper.workspace = true
 search-corex-tools.path = "../search-corex-tools"
+search-cuda-tools.path = "../search-cuda-tools"
 
 [dev-dependencies]
 rand = "0.9"

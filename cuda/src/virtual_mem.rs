@@ -1,15 +1,16 @@
 ﻿use crate::{
     DevByte, Device,
     bindings::{
-        CUdeviceptr, CUmemAccess_flags, CUmemAccessDesc, CUmemAllocationGranularity_flags,
-        CUmemAllocationHandleType, CUmemAllocationProp, CUmemAllocationType,
-        CUmemGenericAllocationHandle, CUmemLocation, CUmemLocationType,
+        HCdeviceptr, hcMemAccessDesc, hcMemAccessFlags, hcMemAllocationGranularity_flags,
+        hcMemAllocationHandleType, hcMemAllocationProp, hcMemAllocationType,
+        hcMemGenericAllocationHandle, hcMemLocation, hcMemLocationType,
     },
 };
 use context_spore::AsRaw;
 use std::{
     collections::BTreeMap,
     ops::{Deref, DerefMut},
+    os::raw::c_void,
     ptr::null_mut,
     slice::{from_raw_parts, from_raw_parts_mut},
     sync::Arc,
@@ -17,15 +18,15 @@ use std::{
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct MemProp(CUmemAllocationProp);
+pub struct MemProp(hcMemAllocationProp);
 
 impl Device {
     pub fn mem_prop(&self) -> MemProp {
-        MemProp(CUmemAllocationProp {
-            type_: CUmemAllocationType::CU_MEM_ALLOCATION_TYPE_PINNED,
-            requestedHandleTypes: CUmemAllocationHandleType::CU_MEM_HANDLE_TYPE_NONE,
-            location: CUmemLocation {
-                type_: CUmemLocationType::CU_MEM_LOCATION_TYPE_DEVICE,
+        MemProp(hcMemAllocationProp {
+            type_: hcMemAllocationType::hcMemAllocationTypePinned,
+            requestedHandleTypes: hcMemAllocationHandleType::hcMemHandleTypeNone,
+            location: hcMemLocation {
+                type_: hcMemLocationType::hcMemLocationTypeDevice,
                 id: unsafe { self.as_raw() },
             },
             win32HandleMetaData: null_mut(),
@@ -37,17 +38,17 @@ impl Device {
 impl MemProp {
     #[inline]
     pub fn granularity_minimum(&self) -> usize {
-        self.granularity(CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_MINIMUM)
+        self.granularity(hcMemAllocationGranularity_flags::HC_MEM_ALLOC_GRANULARITY_MINIMUM)
     }
 
     #[inline]
     pub fn granularity_recommended(&self) -> usize {
-        self.granularity(CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_RECOMMENDED)
+        self.granularity(hcMemAllocationGranularity_flags::HC_MEM_ALLOC_GRANULARITY_RECOMMENDED)
     }
 
-    fn granularity(&self, type_: CUmemAllocationGranularity_flags) -> usize {
+    fn granularity(&self, type_: hcMemAllocationGranularity_flags) -> usize {
         let mut size = 0;
-        driver!(cuMemGetAllocationGranularity(&mut size, &self.0, type_));
+        driver!(hcMemGetAllocationGranularity(&mut size, &self.0, type_));
         size
     }
 }
@@ -56,7 +57,7 @@ impl MemProp {
 pub struct VirByte(u8);
 
 pub struct VirMem {
-    ptr: CUdeviceptr,
+    ptr: HCdeviceptr,
     len: usize,
     /// offset -> phy
     map: BTreeMap<usize, PhyRegion>,
@@ -64,10 +65,10 @@ pub struct VirMem {
 
 impl VirMem {
     pub fn new(len: usize, min_addr: usize) -> Self {
-        let mut ptr = 0;
-        driver!(cuMemAddressReserve(&mut ptr, len, 0, min_addr as _, 0));
+        let mut ptr = null_mut();
+        driver!(hcMemAddressReserve(&mut ptr, len, 0, min_addr as _, 0));
         Self {
-            ptr,
+            ptr: ptr as _,
             len,
             map: [(0, len.into())].into(),
         }
@@ -94,23 +95,26 @@ impl Drop for VirMem {
         let map = std::mem::take(map);
         for (offset, region) in map {
             if let PhyRegion::Mapped(phy) = region {
-                driver!(cuMemUnmap(*ptr + offset as CUdeviceptr, phy.len))
+                driver!(hcMemUnmap(
+                    (*ptr + offset as HCdeviceptr) as *mut c_void,
+                    phy.len
+                ))
             }
         }
-        driver!(cuMemAddressFree(*ptr, *len))
+        driver!(hcMemAddressFree(*ptr as *mut c_void, *len))
     }
 }
 
 pub struct PhyMem {
-    location: CUmemLocation,
-    handle: CUmemGenericAllocationHandle,
+    location: hcMemLocation,
+    handle: hcMemGenericAllocationHandle,
     len: usize,
 }
 
 impl MemProp {
     pub fn create(&self, len: usize) -> Arc<PhyMem> {
         let mut handle = 0;
-        driver!(cuMemCreate(&mut handle, len, &self.0, 0));
+        driver!(hcMemCreate(&mut handle, len, &self.0, 0));
         Arc::new(PhyMem {
             location: self.0.location,
             handle,
@@ -122,12 +126,12 @@ impl MemProp {
 impl Drop for PhyMem {
     fn drop(&mut self) {
         let &mut Self { handle, .. } = self;
-        driver!(cuMemRelease(handle))
+        driver!(hcMemRelease(handle))
     }
 }
 
 impl AsRaw for PhyMem {
-    type Raw = CUmemGenericAllocationHandle;
+    type Raw = hcMemGenericAllocationHandle;
     #[inline]
     unsafe fn as_raw(&self) -> Self::Raw {
         self.handle
@@ -177,13 +181,13 @@ impl VirMem {
         assert!(phy.len <= len);
         // 映射
         {
-            let ptr = self.ptr + offset as CUdeviceptr;
-            driver!(cuMemMap(ptr, phy.len, 0, phy.handle, 0));
-            let desc = CUmemAccessDesc {
+            let ptr = self.ptr + offset as HCdeviceptr;
+            driver!(hcMemMap(ptr as *mut c_void, phy.len, 0, phy.handle, 0));
+            let desc = hcMemAccessDesc {
                 location: phy.location,
-                flags: CUmemAccess_flags::CU_MEM_ACCESS_FLAGS_PROT_READWRITE,
+                flags: hcMemAccessFlags::hcMemAccessFlagsProtReadWrite,
             };
-            driver!(cuMemSetAccess(ptr, phy.len, &desc, 1));
+            driver!(hcMemSetAccess(ptr as *mut c_void, phy.len, &desc, 1));
         }
         // 移除空闲段
         let head = *head;
@@ -201,7 +205,7 @@ impl VirMem {
             let tail = head + head_len + phy_len;
             self.map.insert(tail, tail_len.into());
         }
-        unsafe { std::slice::from_raw_parts_mut((self.ptr + offset as CUdeviceptr) as _, phy_len) }
+        unsafe { std::slice::from_raw_parts_mut((self.ptr + offset as HCdeviceptr) as _, phy_len) }
     }
 
     pub fn unmap(&mut self, offset: usize) -> Arc<PhyMem> {
@@ -213,8 +217,8 @@ impl VirMem {
         let PhyRegion::Mapped(phy) = std::mem::replace(region, len.into()) else {
             unreachable!()
         };
-        let ptr = self.ptr + offset as CUdeviceptr;
-        driver!(cuMemUnmap(ptr, phy.len));
+        let ptr = self.ptr + offset as HCdeviceptr;
+        driver!(hcMemUnmap(ptr as *mut c_void, phy.len));
         phy
     }
 }
